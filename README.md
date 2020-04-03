@@ -1,4 +1,4 @@
-# SoalShiftSISOP20_modul3_E05# SoalShiftSISOP20_modul3_E05
+# SoalShiftSISOP20_modul3_E05
 ## Soal 2
 #### Server Side:
 ```
