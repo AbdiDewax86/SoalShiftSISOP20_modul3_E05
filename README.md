@@ -482,3 +482,210 @@ int screen2 (int sock)
 ```
 
 Pada screen2, client akan memberikan pilihan kepada server (find match atau logout). Jika client memberikan sinyal logout, maka akan kembali ke screen1. Namun jika client mengirimkan sinyal findmatch, maka client akan dimasukkan kedalam lobby dan menunggu sinyal dari server apakah client telah mendapatkan lawan dan akan bermain.
+
+## Soal 4
+#### Soal 4a.
+```
+#include<stdio.h>
+#include<string.h>
+#include<pthread.h>
+#include<stdlib.h>
+#include<unistd.h>
+#include<sys/types.h>
+#include<sys/wait.h>
+#include<sys/ipc.h>
+#include<sys/shm.h>
+
+pthread_t tid[4];
+pid_t child;
+
+int A[4][2] = {
+    {4, 2},
+    {1, 3},
+    {2, 5},
+    {2, 3}
+};
+int B[2][5] = {
+    {1, 3, 5, 7, 9},
+    {2, 4, 6, 8, 10}
+};
+int *C;
+int step = 0;
+
+void *matrix(void *arg){
+    int core = step++;
+    int i,j,k;
+    for(i = core; i<(core+1); i++){
+        for(j = 0; j<5; j++){
+            for(k=0; k<2; k++){
+                C[i*5 + j] += A[i][k] * B[k][j];
+            }
+        }
+    }
+}
+
+int main(void){
+    int i,j;
+    
+    key_t key = 1234;
+
+    int shmid = shmget(key, sizeof(int)*4*5, IPC_CREAT | 0666);
+    C = (int *)shmat(shmid, NULL, 0);
+
+    for (i = 0; i < 4; i++) 
+    {
+        for (j = 0; j < 5; j++) 
+        {
+            C[i*5 + j] = 0;
+        }
+    }
+
+    //int err;
+    i=0;
+    for(i = 0; i<4; i++){
+        int *p;
+        pthread_create(&tid[i],NULL,matrix, (void*)(p));
+    }
+
+    for(i=0; i<4; i++){
+        pthread_join(tid[i],NULL);
+    }
+
+    printf("Matriks 4x2 A:\n");
+    for (i=0; i<4; i++){
+        for (j=0; j<2; j++)
+        {
+           printf ("%d ",A[i][j]);
+        }
+        printf ("\n");
+    }  
+    printf("Matriks 2x5 B:\n");
+    for (i=0; i<2; i++){
+        for (j=0; j<5; j++)
+        {
+           printf ("%d ",B[i][j]);
+        }
+        printf ("\n");
+    }  
+    printf("Matriks 4x5 C:\n");
+    for (i=0; i<4; i++){
+        for (j=0; j<5; j++)
+        {
+           printf ("%d ",C[i*5 + j]);
+        }
+        printf ("\n");
+    }  
+    /*
+    while(i<2) // loop sejumlah thread
+    {
+        err=pthread_create(&(tid[i]),NULL,&matrix,NULL); //membuat thread
+        if(err!=0) //cek error
+        {
+            printf("\n can't create thread : [%s]",strerror(err));
+        }
+        else
+        {
+            printf("\n create thread success\n");
+        }
+        i++;
+    }
+    */
+
+
+    //pthread_join(tid[0],NULL);
+	//pthread_join(tid[1],NULL);
+
+	exit(0);
+	return 0;
+}
+```
+Dalam implementasi soal 4, terdapat matriks 4x2 A dan matriks 2x5 B. Kedua matriks tersebut sudah diinisialisasi dan akan dimasukkan ke matriks C 4x5. Perkalian matriks dilakukan melalui thread matrix. Pemanggilan thread ini dilakukan 4 kali, dan setiap pemanggilan mengisi 1 baris matriks. Matriks C didefinisikan dalam bentuk matriks 1 dimensi berukuran 20 (dari 4x5), agar dapat di passing melalui shared memory, dan dipakai untuk implementasi soal 4b. Untuk output, matriks A, B, dan C diprint.
+
+#### Soal 4b.
+```
+#include<stdio.h>
+#include<string.h>
+#include<pthread.h>
+#include<stdlib.h>
+#include<unistd.h>
+#include<sys/types.h>
+#include<sys/wait.h>
+#include<sys/ipc.h>
+#include<sys/shm.h>
+
+int *C;
+int D[20];
+
+pthread_t tid[2];
+
+int sequence(int num){
+    if(num > 1)
+        return num + sequence(num-1);
+    else
+    {
+        return num;
+    }
+}
+
+void *convert(void *arg){
+    pthread_t id=pthread_self();
+    int i,j;
+    if(pthread_equal(id,tid[0])){
+        printf("test\n");
+        for(i=0; i<4; i++){
+            for(j=0; j<4; j++){
+                D[i*5 + j] = sequence(C[i*5 + j]);
+                //printf("%d\n",sequence(C[i*5 + j]));
+            }
+        }
+    }
+    if(pthread_equal(id,tid[1])){
+        for(i=0; i<4; i++){
+            for(j=0; j<4; j++){
+                printf("%d ",D[i*5 + j]);
+            }
+            printf("\n");
+        }
+    }
+}
+
+int main(void){
+    key_t key = 1234;
+    int i,j;
+
+    int shmid = shmget(key, sizeof(int[4][5]), IPC_CREAT | 0666);
+    C = (int *)shmat(shmid, NULL, 0);
+    
+    printf("Matriks 4x5 C:\n");
+    for (i = 0; i < 4; i++) 
+    {
+        for (j = 0; j < 5; j++) 
+        {
+            printf("%d ",C[i*5+j]);
+        }
+        printf("\n");
+    }
+
+    int err;
+    i=0;
+    while(i<2) // loop sejumlah thread
+    {
+        err=pthread_create(&(tid[i]),NULL,&convert,NULL); //membuat thread
+        if(err!=0) //cek error
+        {
+            printf("\n can't create thread : [%s]",strerror(err));
+        }
+        else
+        {
+            //printf("\n create thread success\n");
+        }
+        i++;
+    }
+    pthread_join(tid[0],NULL);
+	pthread_join(tid[1],NULL);
+
+	exit(0);
+    return 0;
+}
+```
+Dalam implementasi soal 4b, hal yang pertama dilakukan adalah print matriks C. Dalam implementasi ini, terdapat matriks D untuk menyimpan nilai deret aritmatika ke-n untuk setiap elemen dalam matriks C. Terdapat fungsi sequence untuk menghitung deret tersebut. Untuk thread, terdapat thread untuk melakukan operasi tersebut dan memasukkannya ke matriks D, dan thread untuk print matriks D. Thread ini langsung dipanggil untuk melakukan operasi dan mengeluarkan output
