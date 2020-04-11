@@ -10,16 +10,16 @@
 #include <unistd.h>
 #include <pthread.h>
 #define PORT 8080
-void screen2(connection_t * conn);
+void *process(void *ptr);
 
 int player_count=0;
 
-typedef struct player
+struct Lobby
 {
-    int health;
-    int sock;
-} player_t;
-player_t players[1];
+    int *player1;
+    int *player2;
+} lobby[10];
+
 
 struct account
 {
@@ -105,7 +105,7 @@ int main(int argc, char const *argv[]) {
 Pada fungsi main, kita membuat socket dan membuat multithread untuk menerima lebih dari 1 client, ketika client telah tersambung ke server, maka akan masuk kedalam fungsi proses.
 
 ```
-void * process(void * ptr)
+void *process(void *ptr)
 {
 	char buffer[20] = {0};
     char *ptrchar;
@@ -140,21 +140,9 @@ void * process(void * ptr)
         {
             registerr(conn);
         }
-        //if exit
-        else if (strcmp(buffer,"exit")==0)
-        {
-            ptrchar = exit;
-            send(conn->sock , ptrchar , strlen(ptrchar) , 0 );
-            //printf("Message dari server dikirim\n");
-            break;
-        }
         //error
         else
-        {
-            ptrchar = error;
-            send(conn->sock , ptrchar , strlen(ptrchar) , 0 );
-            //printf("Message dari server dikirim\n");
-        }
+        {}
     }
 
 	/* close socket and clean up */
@@ -279,7 +267,7 @@ Pada fungsi login, server akan menunggu input username dan password dari client.
 Jika login success, maka akan memasuki fungsi screen 2.
 
 ```
-void screen2(connection_t * conn)
+void screen2(connection_t *conn)
 {
     char buffer[20] = {0};
     char *ptrchar;
@@ -287,58 +275,113 @@ void screen2(connection_t * conn)
     {
         memset(buffer,'\0',20);
         ptrchar = buffer;
-        //membaca pilihan client di screen 2 (find/logout)
         read( conn->sock , ptrchar, 20);
         printf ("Client : %s\n",buffer);
         if (strcmp(buffer,"find")==0)
         {
-            add_player(conn);
+            add_lobby(conn);
+            memset(buffer,'\0',20);
         }
         else if (strcmp(buffer,"logout")==0)
         {
-            process(conn);
+            printf("Logout success\n");
+            memset(buffer,'\0',20);
+            break;
         }
     }
 }
 ```
 
-Pada screen2, server akan menunggu input dari client (find atau logout). Jika client memberikan input logout, maka akan kembali ke fungsi process, namun jika client memberikan input find, maka akan masuk fungsi addplayer.
+Pada screen2, server akan menunggu input dari client (find atau logout). Jika client memberikan input logout, maka akan kembali ke fungsi process, namun jika client memberikan input find, maka akan masuk fungsi add_lobby.
 
 ```
-//menambahkan player
-void add_player(connection_t * conn)
+//menambahkan player kedalam lobby
+void add_lobby(connection_t * conn)
 {
-    if (player_count < 2)
+    int thislobby = -1;
+    int thisplayer = -1;
+    int i=0;
+    int *opponent;
+    int *player = conn->sock;
+    //mencari lobby yang kosong
+    while(i<10)
     {
-        players[player_count].health = 100;
-        players[player_count].sock = conn->sock;
-        player_count++;
-        printf ("player in lobby : %d\n",player_count);
-        char lobby [] = "Kamu telah masuk kedalam lobby, silahkan tunggu..\n";
-        char *ptrchar = lobby;
-        send(conn->sock , ptrchar , strlen(ptrchar) , 0 );
-        //menunggu pemain
-        while(1)
+        if(!lobby[i].player1)
         {
-            //jika pemain di lobby sudah mencukupi, permainan dimulai
-            if (player_count == 2)
-            {
-                char play [] = "play";
-                ptrchar = play;
-                send(conn->sock , ptrchar , strlen(ptrchar) , 0 );
-                printf ("Game berjalan..\n");
-                playear_count = 0;
-                break;
-            }
+            thislobby = i;
+            thisplayer = 1;
+            lobby[i].player1 = player;
+            break;
         }
-        //setelah game selesai, kembali ke screen 2
-        screen2(conn);
+        else if(!lobby[i].player2)
+        {
+            thislobby = i;
+            thisplayer = 2;
+            lobby[i].player2 = player;
+            break;
+        }
+        i++;
+    }
+    //printf ("player in lobby : %d\n",player_count);
+    char inlobby [] = "Kamu telah masuk kedalam lobby, silahkan tunggu..\n";
+    char *ptrchar = inlobby;
+    send(conn->sock , ptrchar , strlen(ptrchar) , 0 );
+    printf ("Lobby %d in waiting..\n",thislobby);
+    //menunggu kedua player berada didalam satu lobby
+    while(!lobby[thislobby].player1 || !lobby[thislobby].player2)
+    {
+    }
+    //kedua player telah didalam lobby
+    if (thisplayer == 1){
+        opponent = lobby[thislobby].player2;
+    }
+    else if (thisplayer == 2){
+        opponent = lobby[thislobby].player1;
+    }
+    char play [] = "play";
+    ptrchar = play;
+    send(player , ptrchar , strlen(ptrchar) , 0 );
+    printf ("Game berjalan..\n");
+    ingame(player, opponent);
+    lobby[thislobby].player1=-1;
+    lobby[thislobby].player2=-1;
+}
+```
+
+Pada fungsi add_lobby, dilakukan looping untuk mencari lobby mana yang belum terisi oleh 2 player. Ketika telah menemukan lobby, socket player akan disimpan kedalam struct player. Kemudian pemain akan menunggu pemain lain didalam lobby tersebut. Ketika pemain lain sudah memasuki lobby, server akan mencatat socket pemain dan socket musuhnya. Setelah itu, game akan dimulai dan masuk ke fungsi ingame.
+
+```
+void ingame(int *player, int *opponent)
+{
+    char attacked[] = "Attacked";
+    char selesai[] = "Selesai";
+    //printf ("sockplayer = %d dan opp = %d",player,opponent);
+    while(1)
+    {
+        char *ptrchar;
+        char buffer[20];
+        read(player , buffer, 20);
+        printf ("buffer = %s\n",buffer);
+        if(strcmp(buffer,"Selesai")==0)
+        {
+            memset(buffer, '\0', 20);
+            printf("Game selesai!\n");
+            ptrchar = selesai;
+            send(opponent, ptrchar, strlen(ptrchar), 0);
+            break;
+        }
+        else if (strcmp(buffer,"Attack")==0)
+        {
+            memset(buffer, '\0', 20);
+            printf ("client attack!\n");
+            ptrchar = attacked;
+            send(opponent , ptrchar , strlen(ptrchar) , 0 );
+        }
     }
 }
 ```
 
-Pada fungsi add_player, maka data client akan dimasukkan kedalam struct player, kemudian server akan mengirimkan sinyal kepada client untuk menunggu. Jika sudah terdapat 2 player yang menunggu di lobby, maka server mengirimkan sinyal kepada client bahwa game akan berjalan. Setelah game selesai, maka akan kembali ke screen2.
-
+Pada fungsi ingame, dilakukan loop selama permainan masih berlangsung. Server akan terus menerima sinyal dari client apakah itu sinyal attack ataupun sinyal bahwa client telah kalah. Jika sinyal yang diterima adalah attack, maka server akan mengirimkan sinyal tersebut kepada musuhnya. Begitu juga dengan sinyal selesai yang menandakan bahwa client telah mati dan musuh sebagai pemenangnya. Sinyal ini menandakan bahwa game telah selesai. Dan kembali ke screen2.
 
 #### Client Side:
 ```
@@ -349,7 +392,18 @@ Pada fungsi add_player, maka data client akan dimasukkan kedalam struct player, 
 #include <string.h>
 #include <unistd.h>
 #include <arpa/inet.h>
+#include <pthread.h>
+#include <sys/ipc.h>
+#include <sys/shm.h>
+#include <sys/types.h>
+#include <termios.h>
+#include <sys/ioctl.h>
+#include <stdbool.h>
 #define PORT 8080
+
+int kbhit(void);
+void changemode(int dir);
+int game = 0;
 
 int main(int argc, char const *argv[]) {
     struct sockaddr_in address;
@@ -401,9 +455,8 @@ void screen1 (int sock)
     while(1)
     {
         memset(buffer,'\0',30);
-        /*valread = read( sock , buffer, 30);
-        printf ("%s",buffer);
-        memset(buffer, '\0', 30);*/
+        memset(chrsend, '\0', 20);
+        //printf ("%s\n",chrsend);
         printf ("1.login\n2.register\nChoices : ");
         scanf("%s",&chrsend);
         ptrchar=chrsend;
@@ -417,7 +470,7 @@ void screen1 (int sock)
             scanf ("%s",password);
             ptrchar = password;
             send(sock , ptrchar , strlen(ptrchar) , 0 );
-            memset(username,'\0',16);
+            memset(password,'\0',16);
             read( sock , buffer, 30);
             if (strcmp(buffer,"Login success")==0)
             {
@@ -445,7 +498,14 @@ void screen1 (int sock)
                 memset(buffer,'\0',30);
             }
         }
+        else{
+            printf("Input error!\n");
+        }
     }
+        //valread = read( sock , buffer, 30);
+        //return 0;
+
+}
 ```
 
 Pada screen 1, client akan memberikan pilihan mana yang ingin dipilih (login atau register). Jika client memilih register, maka client akan memberikan username dan password kepada server untuk didaftarkan. Jika client memilih login, maka client juga akan memberikan username dan password kepada server, jika server memberikan sinyal login success, maka client akan masuk ke screen2, jika tidak maka akan tetap berada di screen1.
@@ -463,6 +523,7 @@ int screen2 (int sock)
         send(sock,ptrchar,strlen(ptrchar),0);
         if (strcmp(chrsend,"find")==0)
         {
+            memset(chrsend,'\0',20);
             read( sock , buffer, 50);
             printf ("%s",buffer);
             memset(buffer,'\0',50);
@@ -470,18 +531,99 @@ int screen2 (int sock)
             if (strcmp(buffer,"play")==0)
             {
                 printf ("Kamu telah menemukan lawan, silahkan bermain!\n");
+                memset(buffer,'\0',50);
+                game = 1;
+                play(sock);
             }
         }
         else if (strcmp(chrsend,"logout")==0)
         {
-            screen1(sock);
+            printf("Logout success\n");
+            memset(chrsend,'\0',20);
+            break;
         }
     }
 
 }
 ```
 
-Pada screen2, client akan memberikan pilihan kepada server (find match atau logout). Jika client memberikan sinyal logout, maka akan kembali ke screen1. Namun jika client mengirimkan sinyal findmatch, maka client akan dimasukkan kedalam lobby dan menunggu sinyal dari server apakah client telah mendapatkan lawan dan akan bermain.
+Pada screen2, client akan memberikan pilihan kepada server (find match atau logout). Jika client memberikan sinyal logout, maka akan kembali ke screen1. Namun jika client mengirimkan sinyal findmatch, maka client akan dimasukkan kedalam lobby dan menunggu sinyal dari server apakah client telah mendapatkan lawan dan akan bermain. Kemudian masuk ke fungsi play.
+
+```
+void *attacked(void *ptr)
+{
+    int health = 100;
+    //printf ("sebelum\n");
+    int sock = *(int*)ptr;
+    //printf ("sock = %d\n",sock);
+    //printf ("masuk thread\n");
+    char selesai[] = "Selesai";
+    while(game == 1)
+    {
+        char *ptrchar;
+        char buffer[20];
+        read( sock , buffer, 30);
+        printf ("buffer = %s\n",buffer);
+        if (strcmp(buffer, "Attacked")==0)
+        {
+            memset(buffer, '\0', 20);
+            health = health - 10;
+            printf ("health = %d\n",health);
+        }
+        else if (strcmp(buffer, "Selesai") == 0)
+        {
+            memset(buffer, '\0', 20);
+            printf ("You win!\n");
+            game = 0;
+            break;
+        }
+        if (health <= 0)
+        {
+            printf ("You lose!\n");
+            ptrchar = selesai;
+            send(sock,ptrchar,strlen(ptrchar),0);
+            read( sock , buffer, 30);
+            memset(buffer, '\0', 20);
+            game = 0;
+            break;
+        }
+    }
+}
+
+void play(int sock)
+{
+    //printf ("socket = %d\n",sock);
+    pthread_t thread;
+    changemode(1);
+    if (pthread_create(&thread, 0, attacked, (void *)&sock) < 0)
+    {
+        perror("could not create thread");
+        return;
+    }
+    char hit;
+    char *attack = "Attack";
+    char *selesai = "Selesai";
+    while (game == 1){
+        if (!kbhit()){
+            if (game == 0)
+            {
+                break;
+            }
+            hit = getchar();
+            if(hit == ' ' && game==1)
+            {
+                printf("HIT!!!\n");
+                send(sock,attack,sizeof(attack)+1,0);
+            }
+        }
+    }
+    send(sock,selesai,sizeof(selesai)+1,0);
+    changemode(0);
+}
+```
+
+Karena pada fungsi play dibutuhkan 2 pekerjaan dalam waktu yang sama, yaitu memberikan 'HIT' kepada musuh dan juga menerima serangan dari musuh, maka pada fungsi ini dibuatlah thread 'attacked'. Pada fungsi play, digunakan fungsi changemode() dan kbhit() agar pemain dapat bermain permainan ini dengan menekan 'Space'. Jika pemain menekan 'Space', maka client akan mengirimkan sinyal 'HIT' kepada server agar server mengirimkan sinyal tersebut kepada musuh.
+Pada fungsi 'Attacked', client akan menerima sinyal dari server, jika sinyal yang diterima merupakan sinyal 'attack', maka health pemain akan -10. Dan jika health pemain <= 0, maka client akan mengirimkan sinyal game selesai kepada server yang menandakan pemain telah kalah. Jika sinyal yang diterima merupakan sinyal 'selesai', menandakan bahwa musuh telah mati dan pemain telah memenangkan permainan. Kemudian kembali ke screen2.
 
 ## Soal 4
 #### Soal 4a.
@@ -689,3 +831,60 @@ int main(void){
 }
 ```
 Dalam implementasi soal 4b, hal yang pertama dilakukan adalah print matriks C. Dalam implementasi ini, terdapat matriks D untuk menyimpan nilai deret aritmatika ke-n untuk setiap elemen dalam matriks C. Terdapat fungsi sequence untuk menghitung deret tersebut. Untuk thread, terdapat thread untuk melakukan operasi tersebut dan memasukkannya ke matriks D, dan thread untuk print matriks D. Thread ini langsung dipanggil untuk melakukan operasi dan mengeluarkan output
+
+#### Soal 4c.
+```
+#include  <fcntl.h>
+#include  <stdio.h>
+#include  <stdlib.h>
+#include  <string.h>
+#include  <sys/types.h>
+#include  <sys/wait.h>
+#include  <sys/stat.h>
+#include  <termios.h>
+#include  <unistd.h>                             
+
+#define INPUT_END 1 //write
+#define OUTPUT_END 0//read
+
+int main()
+{
+    pid_t pid;
+    int fd[2];
+    if (pipe(fd) < 0) exit(1);
+    pid=fork();
+    if (pid==0)
+    {
+        dup2(fd[1], STDOUT_FILENO);
+        close(fd[0]);
+        close(fd[1]);
+        execlp("ls", "ls", NULL);
+        printf("Gagal mengeksekusi1\n");
+        exit(1);
+    }
+    else
+    {
+        pid = fork();
+        if(pid==0)
+        {
+            dup2(fd[0], STDIN_FILENO);
+            close(fd[1]);
+            close(fd[0]);
+            execlp("wc", "wc", "-l", NULL);
+            printf("Gagal mengeksekusi2\n");
+            exit(1);
+        }
+        else
+        {
+            int status;
+            close(fd[0]);
+            close(fd[1]);
+            waitpid(pid, &status, 0);
+        }
+        
+    }
+    
+}   
+```
+
+Dalam implementasi soal 4c, kita mulai dengan membuat pipe dan kemudian membuat fork. Child fork digunakan sebagai command output yaitu fungsi ls, sehingga kita harus mengubah standart output file descriptor (1) pada pipe write fd[1]. Parent fork digunakan sebagai command input yaitu fungsi wc, sehingga kita harus mengubah standart input file descriptor (0) pada pipe read fd[0]. Kita mengubah file descriptor tersebut menggunakan fungsi dup2() dimana akan membuat duplicate dari file descriptor pipe sehingga file desciptor tetap terbuka untuk menjalankan fungsi exec.
