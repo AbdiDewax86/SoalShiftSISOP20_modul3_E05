@@ -6,16 +6,16 @@
 #include <unistd.h>
 #include <pthread.h>
 #define PORT 8080
-void screen2(connection_t * conn);
+void *process(void *ptr);
 
 int player_count=0;
 
-typedef struct player
+struct Lobby
 {
-    int health;
-    int sock;
-} player_t;
-player_t players[1];
+    int *player1;
+    int *player2;
+} lobby[10];
+
 
 struct account
 {
@@ -30,34 +30,84 @@ typedef struct
 	int addr_len;
 } connection_t;
 
-void add_player(connection_t * conn)
+void ingame(int *player, int *opponent)
 {
-    if (player_count < 2)
+    char attacked[] = "Attacked";
+    char selesai[] = "Selesai";
+    //printf ("sockplayer = %d dan opp = %d",player,opponent);
+    while(1)
     {
-        players[player_count].health = 100;
-        players[player_count].sock = conn->sock;
-        player_count++;
-        printf ("player in lobby : %d\n",player_count);
-        char lobby [] = "Kamu telah masuk kedalam lobby, silahkan tunggu..\n";
-        char *ptrchar = lobby;
-        send(conn->sock , ptrchar , strlen(ptrchar) , 0 );
-        while(1)
+        char *ptrchar;
+        char buffer[20];
+        read(player , buffer, 20);
+        printf ("buffer = %s\n",buffer);
+        if(strcmp(buffer,"Selesai")==0)
         {
-            if (player_count == 2)
-            {
-                char play [] = "play";
-                ptrchar = play;
-                send(conn->sock , ptrchar , strlen(ptrchar) , 0 );
-                printf ("Game berjalan..\n");
-                playear_count = 0;
-                break;
-            }
+            memset(buffer, '\0', 20);
+            printf("Game selesai!\n");
+            ptrchar = selesai;
+            send(opponent, ptrchar, strlen(ptrchar), 0);
+            break;
         }
-        screen2(conn);
+        else if (strcmp(buffer,"Attack")==0)
+        {
+            memset(buffer, '\0', 20);
+            printf ("client attack!\n");
+            ptrchar = attacked;
+            send(opponent , ptrchar , strlen(ptrchar) , 0 );
+        }
     }
 }
 
-void screen2(connection_t * conn)
+void add_lobby(connection_t * conn)
+{
+    int thislobby = -1;
+    int thisplayer = -1;
+    int i=0;
+    int *opponent;
+    int *player = conn->sock;
+    while(i<10)
+    {
+        if(!lobby[i].player1)
+        {
+            thislobby = i;
+            thisplayer = 1;
+            lobby[i].player1 = player;
+            break;
+        }
+        else if(!lobby[i].player2)
+        {
+            thislobby = i;
+            thisplayer = 2;
+            lobby[i].player2 = player;
+            break;
+        }
+        i++;
+    }
+    //printf ("player in lobby : %d\n",player_count);
+    char inlobby [] = "Kamu telah masuk kedalam lobby, silahkan tunggu..\n";
+    char *ptrchar = inlobby;
+    send(conn->sock , ptrchar , strlen(ptrchar) , 0 );
+    printf ("Lobby %d in waiting..\n",thislobby);
+    while(!lobby[thislobby].player1 || !lobby[thislobby].player2)
+    {
+    }
+    if (thisplayer == 1){
+        opponent = lobby[thislobby].player2;
+    }
+    else if (thisplayer == 2){
+        opponent = lobby[thislobby].player1;
+    }
+    char play [] = "play";
+    ptrchar = play;
+    send(player , ptrchar , strlen(ptrchar) , 0 );
+    printf ("Game berjalan..\n");
+    ingame(player, opponent);
+    lobby[thislobby].player1=-1;
+    lobby[thislobby].player2=-1;
+}
+
+void screen2(connection_t *conn)
 {
     char buffer[20] = {0};
     char *ptrchar;
@@ -69,11 +119,14 @@ void screen2(connection_t * conn)
         printf ("Client : %s\n",buffer);
         if (strcmp(buffer,"find")==0)
         {
-            add_player(conn);
+            add_lobby(conn);
+            memset(buffer,'\0',20);
         }
         else if (strcmp(buffer,"logout")==0)
         {
-            process(conn);
+            printf("Logout success\n");
+            memset(buffer,'\0',20);
+            break;
         }
     }
 }
@@ -180,7 +233,7 @@ int login(connection_t *conn)
     return 0;
 }
 
-void * process(void * ptr)
+void *process(void *ptr)
 {
 	char buffer[20] = {0};
     char *ptrchar;
@@ -215,21 +268,9 @@ void * process(void * ptr)
         {
             registerr(conn);
         }
-        //if exit
-        else if (strcmp(buffer,"exit")==0)
-        {
-            ptrchar = exit;
-            send(conn->sock , ptrchar , strlen(ptrchar) , 0 );
-            //printf("Message dari server dikirim\n");
-            break;
-        }
         //error
         else
-        {
-            ptrchar = error;
-            send(conn->sock , ptrchar , strlen(ptrchar) , 0 );
-            //printf("Message dari server dikirim\n");
-        }
+        {}
     }
 
 	/* close socket and clean up */
